@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080, initial-scale=1">
+<title>COREX WAR MONITOR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+<style>
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --red: #FF0033;
+  --red-glow: rgba(255, 0, 51, 0.6);
+  --yellow: #FFD700;
+  --yellow-glow: rgba(255, 215, 0, 0.5);
+  --white: #FFFFFF;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --dim: #888888;
+  --font: 'Share Tech Mono', monospace;
+}
+
+html, body {
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══ SCANLINE OVERLAY ═══ */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ═══ GLOW UTILITIES ═══ */
+.glow-red { text-shadow: 0 0 8px var(--red-glow), 0 0 20px rgba(255, 0, 51, 0.3); }
+.glow-yellow { text-shadow: 0 0 8px var(--yellow-glow); }
+.border-glow-red { box-shadow: 0 0 8px rgba(255, 0, 51, 0.3), inset 0 0 8px rgba(255, 0, 51, 0.1); }
+.border-glow-yellow { box-shadow: 0 0 8px rgba(255, 215, 0, 0.2); }
+
+/* ═══ TOP BAR ═══ */
+#top-bar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(180deg, #111 0%, #060606 100%);
+  border-bottom: 1px solid rgba(255, 0, 51, 0.3);
+  position: relative;
+  z-index: 10;
+}
+
+#logo {
+  flex: 0 0 280px;
+  padding-left: 16px;
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--red);
+  letter-spacing: 3px;
+  white-space: nowrap;
+  text-shadow: 0 0 10px var(--red-glow), 0 0 30px rgba(255, 0, 51, 0.2);
+}
+
+#logo .live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--red);
+  border-radius: 50%;
+  margin-right: 8px;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--red), 0 0 12px var(--red-glow);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+#ticker-wrap {
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  margin: 0 20px;
+  position: relative;
+}
+
+#ticker-wrap::before,
+#ticker-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 40px;
+  height: 100%;
+  z-index: 2;
+}
+
+#ticker-wrap::before {
+  left: 0;
+  background: linear-gradient(90deg, #0a0a0a, transparent);
+}
+
+#ticker-wrap::after {
+  right: 0;
+  background: linear-gradient(-90deg, #0a0a0a, transparent);
+}
+
+#ticker {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--yellow);
+  animation: ticker-scroll 60s linear infinite;
+  text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+#clock {
+  flex: 0 0 180px;
+  text-align: right;
+  padding-right: 16px;
+  font-size: 18px;
+  color: var(--white);
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+#clock .date-text {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+
+/* ═══ MAIN AREA ═══ */
+#main {
+  display: flex;
+  height: calc(1080px - 40px - 35px);
+  background: var(--bg);
+}
+
+/* ═══ LEFT: MAP ═══ */
+#map-col {
+  width: 35%;
+  position: relative;
+  border-right: 1px solid rgba(255, 0, 51, 0.15);
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.maplibregl-popup-content {
+  background: rgba(10, 10, 10, 0.95) !important;
+  color: var(--white) !important;
+  font-family: var(--font) !important;
+  font-size: 12px !important;
+  border: 1px solid rgba(255, 0, 51, 0.4) !important;
+  border-radius: 2px !important;
+  padding: 10px 14px !important;
+  box-shadow: 0 0 20px rgba(255, 0, 51, 0.2) !important;
+  max-width: 260px !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: rgba(255, 0, 51, 0.4) !important;
+}
+
+.maplibregl-popup-close-button {
+  color: var(--dim) !important;
+  font-size: 16px !important;
+}
+
+.map-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  position: relative;
+}
+
+.map-pin::after {
+  content: '';
+  position: absolute;
+  top: -4px; left: -4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  animation: pin-pulse 2s ease-out infinite;
+}
+
+.map-pin.critical {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+.map-pin.critical::after {
+  border: 2px solid var(--red);
+}
+
+.map-pin.high {
+  background: var(--yellow);
+  box-shadow: 0 0 8px var(--yellow);
+}
+.map-pin.high::after {
+  border: 2px solid var(--yellow);
+}
+
+.map-pin.general {
+  background: var(--white);
+  box-shadow: 0 0 6px rgba(255,255,255,0.5);
+}
+.map-pin.general::after {
+  border: 2px solid rgba(255,255,255,0.5);
+}
+
+@keyframes pin-pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+#map-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 10px;
+  color: var(--red);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  z-index: 5;
+  text-shadow: 0 0 10px var(--red-glow);
+  background: rgba(0,0,0,0.6);
+  padding: 4px 8px;
+}
+
+/* ═══ CENTER: CAMERA ═══ */
+#cam-col {
+  width: 35%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-right: 1px solid rgba(255, 0, 51, 0.15);
+}
+
+#cam-header {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(255, 0, 51, 0.08);
+  border-bottom: 1px solid rgba(255, 0, 51, 0.15);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--dim);
+}
+
+#cam-header .cam-name {
+  color: var(--white);
+  font-size: 12px;
+}
+
+#cam-container {
+  flex: 1;
+  position: relative;
+  background: #050505;
+  overflow: hidden;
+}
+
+#cam-container iframe {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  transition: opacity 1s ease;
+}
+
+#cam-container iframe.fade-out {
+  opacity: 0;
+}
+
+#cam-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 14px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+#cam-overlay .city-name {
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+#cam-overlay .live-badge {
+  font-size: 11px;
+  color: var(--red);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+  text-shadow: 0 0 8px var(--red-glow);
+}
+
+#cam-progress {
+  height: 2px;
+  background: rgba(255, 0, 51, 0.15);
+  position: relative;
+}
+
+#cam-progress-bar {
+  height: 100%;
+  background: var(--red);
+  width: 0%;
+  transition: width 1s linear;
+  box-shadow: 0 0 6px var(--red-glow);
+}
+
+/* ═══ RIGHT: NEWS FEED ═══ */
+#news-col {
+  width: 30%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#news-header {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(255, 0, 51, 0.08);
+  border-bottom: 1px solid rgba(255, 0, 51, 0.15);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+#news-header .count {
+  color: var(--red);
+}
+
+#news-feed {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+#news-list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.news-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  position: relative;
+  animation: item-fade-in 0.6s ease;
+  flex-shrink: 0;
+}
+
+.news-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+.news-item.critical::before { background: var(--red); box-shadow: 0 0 8px var(--red-glow); }
+.news-item.high::before { background: var(--yellow); box-shadow: 0 0 6px var(--yellow-glow); }
+.news-item.general::before { background: rgba(255,255,255,0.3); }
+
+.news-item .source {
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin-bottom: 3px;
+}
+
+.news-item.critical .source { color: var(--red); }
+.news-item.high .source { color: var(--yellow); }
+.news-item.general .source { color: var(--dim); }
+
+.news-item .headline {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.news-item .time-ago {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+@keyframes item-fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* auto-scroll animation */
+#news-list.scrolling {
+  animation: news-scroll var(--scroll-duration, 60s) linear infinite;
+}
+
+@keyframes news-scroll {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(var(--scroll-distance, -1000px)); }
+}
+
+/* ═══ BOTTOM BAR ═══ */
+#bottom-bar {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(0deg, #111 0%, #060606 100%);
+  border-top: 1px solid rgba(255, 0, 51, 0.3);
+  padding: 0 16px;
+  gap: 0;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.market-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  font-size: 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.market-item:last-child { border-right: none; }
+
+.market-item .label {
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.market-item .value {
+  color: var(--white);
+}
+
+.market-item .change {
+  font-size: 11px;
+}
+
+.market-item .change.up { color: #00FF88; text-shadow: 0 0 6px rgba(0,255,136,0.4); }
+.market-item .change.down { color: var(--red); text-shadow: 0 0 6px var(--red-glow); }
+
+/* ═══ CONNECTION STATUS ═══ */
+#ws-status {
+  position: fixed;
+  bottom: 40px;
+  right: 8px;
+  font-size: 9px;
+  color: var(--dim);
+  z-index: 100;
+  letter-spacing: 1px;
+}
+
+#ws-status .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+#ws-status .dot.connected { background: #00FF88; box-shadow: 0 0 4px #00FF88; }
+#ws-status .dot.disconnected { background: var(--red); box-shadow: 0 0 4px var(--red); }
+#ws-status .dot.polling { background: var(--yellow); box-shadow: 0 0 4px var(--yellow); }
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div id="top-bar">
+  <div id="logo"><span class="live-dot"></span>COREX WAR MONITOR</div>
+  <div id="ticker-wrap">
+    <div id="ticker">Haberler yükleniyor...</div>
+  </div>
+  <div id="clock">
+    <div id="clock-time">00:00:00</div>
+    <div class="date-text" id="clock-date"></div>
+  </div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div id="main">
+
+  <!-- LEFT: MAP -->
+  <div id="map-col">
+    <div id="map-label">▣ CANLI HARİTA</div>
+    <div id="map"></div>
+  </div>
+
+  <!-- CENTER: CAMERA -->
+  <div id="cam-col">
+    <div id="cam-header">
+      <span>▶ CANLI YAYIN</span>
+      <span class="cam-name" id="cam-title">—</span>
+    </div>
+    <div id="cam-container">
+      <iframe id="cam-iframe" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      <div id="cam-overlay">
+        <span class="city-name" id="cam-city">—</span>
+        <span class="live-badge">⬤ CANLI</span>
+      </div>
+    </div>
+    <div id="cam-progress"><div id="cam-progress-bar"></div></div>
+  </div>
+
+  <!-- RIGHT: NEWS -->
+  <div id="news-col">
+    <div id="news-header">
+      <span>◉ SON HABERLER</span>
+      <span class="count" id="news-count">0 HABER</span>
+    </div>
+    <div id="news-feed">
+      <div id="news-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ BOTTOM BAR ═══ -->
+<div id="bottom-bar" id="markets">
+  <div class="market-item"><span class="label">BIST 100</span><span class="value" id="m-bist">—</span><span class="change" id="m-bist-c">—</span></div>
+  <div class="market-item"><span class="label">S&P 500</span><span class="value" id="m-sp500">—</span><span class="change" id="m-sp500-c">—</span></div>
+  <div class="market-item"><span class="label">NASDAQ</span><span class="value" id="m-nasdaq">—</span><span class="change" id="m-nasdaq-c">—</span></div>
+  <div class="market-item"><span class="label">USD/TRY</span><span class="value" id="m-usd">—</span><span class="change" id="m-usd-c">—</span></div>
+  <div class="market-item"><span class="label">EUR/TRY</span><span class="value" id="m-eur">—</span><span class="change" id="m-eur-c">—</span></div>
+  <div class="market-item"><span class="label">ALTIN</span><span class="value" id="m-gold">—</span><span class="change" id="m-gold-c">—</span></div>
+</div>
+
+<!-- ═══ WS STATUS ═══ -->
+<div id="ws-status">
+  <span class="dot disconnected" id="ws-dot"></span>
+  <span id="ws-text">BAĞLANTI BEKLENİYOR</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════
+window.MONITOR_API_URL = window.MONITOR_API_URL || 'http://localhost:3000';
+const WS_URL = 'ws://localhost:3001';
+const API = window.MONITOR_API_URL;
+
+const CAMERAS = [
+  { name: "Kudüs Panorama", ytId: "FGUKbzulB_Y", city: "Kudüs 🇮🇱" },
+  { name: "Beyrut", ytId: "PLACEHOLDER1", city: "Beyrut 🇱🇧" },
+  { name: "Batı Duvarı", ytId: "PLACEHOLDER2", city: "Kudüs 🇮🇱" }
+];
+
+const CAM_ROTATE_INTERVAL = 10 * 60 * 1000; // 10 dakika
+const NEWS_POLL_INTERVAL = 30 * 1000;
+const TICKER_POLL_INTERVAL = 60 * 1000;
+const MARKET_POLL_INTERVAL = 5 * 60 * 1000;
+
+// ═══════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  document.getElementById('clock-time').textContent = `${h}:${m}:${s}`;
+
+  const days = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+  const months = ['OCA','ŞUB','MAR','NİS','MAY','HAZ','TEM','AĞU','EYL','EKİ','KAS','ARA'];
+  document.getElementById('clock-date').textContent =
+    `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ═══════════════════════════════════════════
+// NEWS TICKER (Top Bar)
+// ═══════════════════════════════════════════
+let tickerHeadlines = ['COREX WAR MONITOR AKTİF ◆ SİSTEM BAŞLATILDI'];
+
+function updateTicker() {
+  const el = document.getElementById('ticker');
+  el.textContent = tickerHeadlines.join(' ◆ ');
+  // reset animation
+  el.style.animation = 'none';
+  el.offsetHeight; // reflow
+  const duration = Math.max(30, tickerHeadlines.join(' ◆ ').length * 0.25);
+  el.style.animation = `ticker-scroll ${duration}s linear infinite`;
+}
+
+async function fetchTicker() {
+  try {
+    const res = await fetch(`${API}/api/news`);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      tickerHeadlines = data.map(n => n.headline || n.title).filter(Boolean);
+      updateTicker();
+    }
+  } catch (e) {
+    // API henüz hazır değil — demo verileri kullan
+  }
+}
+
+updateTicker();
+fetchTicker();
+setInterval(fetchTicker, TICKER_POLL_INTERVAL);
+
+// ═══════════════════════════════════════════
+// MAP (MapLibre GL)
+// ═══════════════════════════════════════════
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      'osm-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+          'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+          'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+        ],
+        tileSize: 256,
+        attribution: '© CartoDB © OpenStreetMap'
+      }
+    },
+    layers: [{
+      id: 'osm-tiles',
+      type: 'raster',
+      source: 'osm-tiles',
+      minzoom: 0,
+      maxzoom: 18
+    }]
+  },
+  center: [36, 33],
+  zoom: 4.2,
+  attributionControl: false,
+  logoPosition: 'bottom-right'
+});
+
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+// Pin yönetimi
+const mapMarkers = [];
+
+function priorityClass(priority) {
+  if (priority === 'critical') return 'critical';
+  if (priority === 'high') return 'high';
+  return 'general';
+}
+
+function addMapPin(item) {
+  if (!item.lat || !item.lng) return;
+
+  const el = document.createElement('div');
+  el.className = `map-pin ${priorityClass(item.priority)}`;
+
+  const popup = new maplibregl.Popup({ offset: 12, closeButton: true })
+    .setHTML(`
+      <div style="margin-bottom:4px;color:${item.priority === 'critical' ? 'var(--red)' : item.priority === 'high' ? 'var(--yellow)' : 'var(--dim)'};font-size:10px;letter-spacing:1px;">
+        ${item.source || 'KAYNAK BİLİNMİYOR'}
+      </div>
+      <div style="margin-bottom:6px;line-height:1.4;">${item.headline || item.title}</div>
+      <div style="color:var(--dim);font-size:10px;">${item.time || ''}</div>
+    `);
+
+  const marker = new maplibregl.Marker({ element: el })
+    .setLngLat([item.lng, item.lat])
+    .setPopup(popup)
+    .addTo(map);
+
+  mapMarkers.push(marker);
+}
+
+function clearMapPins() {
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers.length = 0;
+}
+
+// Demo pinler (API bağlanana kadar)
+const demoPins = [
+  { lat: 31.77, lng: 35.23, headline: "Kudüs'te güvenlik operasyonu", source: "AA", priority: "critical", time: "5dk önce" },
+  { lat: 33.89, lng: 35.50, headline: "Beyrut'ta patlama sesleri", source: "Reuters", priority: "high", time: "12dk önce" },
+  { lat: 36.20, lng: 37.15, headline: "Halep'te insani yardım konvoyu", source: "AFP", priority: "general", time: "28dk önce" },
+  { lat: 33.31, lng: 44.36, headline: "Bağdat'ta güvenlik alarmı", source: "Al Jazeera", priority: "high", time: "45dk önce" },
+  { lat: 34.80, lng: 38.99, headline: "Palmira bölgesinde hareketlilik", source: "SANA", priority: "general", time: "1sa önce" },
+  { lat: 15.35, lng: 44.20, headline: "Yemen'de hava saldırısı", source: "Reuters", priority: "critical", time: "3dk önce" },
+  { lat: 32.90, lng: 13.18, headline: "Trablus'ta çatışma", source: "Libya Observer", priority: "high", time: "20dk önce" },
+  { lat: 48.37, lng: 37.95, headline: "Donbas'ta yoğun çatışma", source: "Ukrinform", priority: "critical", time: "8dk önce" }
+];
+
+map.on('load', () => {
+  demoPins.forEach(addMapPin);
+});
+
+// ═══════════════════════════════════════════
+// CAMERA MANAGEMENT
+// ═══════════════════════════════════════════
+let currentCamIndex = 0;
+let camProgressInterval = null;
+
+function loadCamera(index) {
+  const cam = CAMERAS[index];
+  const iframe = document.getElementById('cam-iframe');
+  const title = document.getElementById('cam-title');
+  const city = document.getElementById('cam-city');
+  const progressBar = document.getElementById('cam-progress-bar');
+
+  // Fade out
+  iframe.classList.add('fade-out');
+
+  setTimeout(() => {
+    iframe.src = `https://www.youtube.com/embed/${cam.ytId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&modestbranding=1`;
+    title.textContent = cam.name;
+    city.textContent = cam.city;
+
+    // Fade in
+    setTimeout(() => iframe.classList.remove('fade-out'), 300);
+
+    // Progress bar
+    progressBar.style.width = '0%';
+    progressBar.style.transition = 'none';
+    progressBar.offsetHeight; // reflow
+    progressBar.style.transition = `width ${CAM_ROTATE_INTERVAL}ms linear`;
+    requestAnimationFrame(() => {
+      progressBar.style.width = '100%';
+    });
+  }, 1000);
+}
+
+function nextCamera() {
+  currentCamIndex = (currentCamIndex + 1) % CAMERAS.length;
+  loadCamera(currentCamIndex);
+}
+
+// İlk kamerayı yükle
+loadCamera(0);
+setInterval(nextCamera, CAM_ROTATE_INTERVAL);
+
+// ═══════════════════════════════════════════
+// NEWS FEED (Right Column)
+// ═══════════════════════════════════════════
+let allNews = [];
+let newsScrollPos = 0;
+
+// Demo haberler
+const demoNews = [
+  { source: "ANADOLU AJANSI", headline: "Kudüs'te güvenlik güçleri alarma geçti, bölgede yoğun önlemler alındı", priority: "critical", time: "2dk önce" },
+  { source: "REUTERS", headline: "BM Güvenlik Konseyi acil toplantıya çağrıldı", priority: "critical", time: "5dk önce" },
+  { source: "AL JAZEERA", headline: "Gazze sınırında hareketlilik sürüyor, insani koridor talebi", priority: "high", time: "8dk önce" },
+  { source: "AFP", headline: "NATO Genel Sekreteri: Durumu yakından izliyoruz", priority: "high", time: "12dk önce" },
+  { source: "TRT HABER", headline: "Dışişleri Bakanlığı'ndan bölgeye ilişkin açıklama", priority: "general", time: "15dk önce" },
+  { source: "BBC", headline: "Uluslararası toplum ateşkes çağrısında bulundu", priority: "high", time: "18dk önce" },
+  { source: "CNN TÜRK", headline: "Sınır bölgesinde sivil tahliye operasyonu başlatıldı", priority: "critical", time: "22dk önce" },
+  { source: "NTV", headline: "Petrol fiyatları son gelişmelerle yükseldi", priority: "general", time: "25dk önce" },
+  { source: "SPUTNIK", headline: "Rusya'dan diplomatik girişim sinyali", priority: "general", time: "30dk önce" },
+  { source: "EURONEWS", headline: "AB dışişleri bakanları olağanüstü toplanacak", priority: "high", time: "33dk önce" },
+  { source: "ANADOLU AJANSI", headline: "AFAD bölgeye yardım ekibi sevk etti", priority: "general", time: "38dk önce" },
+  { source: "REUTERS", headline: "Tahıl koridoru anlaşması risk altında", priority: "high", time: "42dk önce" },
+  { source: "AL JAZEERA", headline: "Mülteci sayısında rekor artış bekleniyor", priority: "critical", time: "48dk önce" },
+  { source: "GUARDIAN", headline: "Uluslararası insani yardım kuruluşları uyardı", priority: "general", time: "55dk önce" },
+  { source: "HÜRRIYET", headline: "Cumhurbaşkanlığı'ndan bölgeye özel temsilci atandı", priority: "general", time: "1sa önce" }
+];
+
+function renderNews(items) {
+  const list = document.getElementById('news-list');
+  list.innerHTML = '';
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = `news-item ${priorityClass(item.priority)}`;
+    el.innerHTML = `
+      <div class="source">${item.source}</div>
+      <div class="headline">${item.headline || item.title}</div>
+      <div class="time-ago">${item.time || timeAgo(item.timestamp)}</div>
+    `;
+    list.appendChild(el);
+  });
+
+  document.getElementById('news-count').textContent = `${items.length} HABER`;
+  setupNewsScroll();
+}
+
+function setupNewsScroll() {
+  const list = document.getElementById('news-list');
+  const feed = document.getElementById('news-feed');
+  const listH = list.scrollHeight;
+  const feedH = feed.clientHeight;
+
+  if (listH > feedH) {
+    // Duplicate items for seamless loop
+    const clone = list.innerHTML;
+    list.innerHTML += clone;
+    const totalH = list.scrollHeight;
+    list.style.setProperty('--scroll-distance', `-${listH}px`);
+    list.style.setProperty('--scroll-duration', `${Math.max(30, listH * 0.06)}s`);
+    list.classList.add('scrolling');
+  } else {
+    list.classList.remove('scrolling');
+  }
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 60) return `${diff}sn önce`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}dk önce`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}sa önce`;
+  return `${Math.floor(diff / 86400)}g önce`;
+}
+
+async function fetchNews() {
+  try {
+    const res = await fetch(`${API}/api/news`);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      allNews = data;
+      renderNews(allNews);
+    }
+  } catch (e) {
+    // API bağlanamadı — demo
+  }
+}
+
+// Demo verilerle başlat
+renderNews(demoNews);
+fetchNews();
+setInterval(fetchNews, NEWS_POLL_INTERVAL);
+
+// ═══════════════════════════════════════════
+// MARKETS (Bottom Bar)
+// ═══════════════════════════════════════════
+function setMarket(id, value, change, pct) {
+  const valEl = document.getElementById(`m-${id}`);
+  const chgEl = document.getElementById(`m-${id}-c`);
+  if (!valEl || !chgEl) return;
+  valEl.textContent = value;
+  const isUp = change >= 0;
+  chgEl.textContent = `${isUp ? '▲' : '▼'} %${Math.abs(pct).toFixed(2)}`;
+  chgEl.className = `change ${isUp ? 'up' : 'down'}`;
+}
+
+// Demo piyasa verileri
+function loadDemoMarkets() {
+  setMarket('bist', '9.842', 124, 1.28);
+  setMarket('sp500', '5.892', -18, -0.31);
+  setMarket('nasdaq', '18.650', 42, 0.23);
+  setMarket('usd', '38.42', 0.15, 0.39);
+  setMarket('eur', '41.85', -0.08, -0.19);
+  setMarket('gold', '2.485', 12, 0.49);
+}
+
+async function fetchMarkets() {
+  try {
+    const res = await fetch(`${API}/api/markets`);
+    const data = await res.json();
+    if (data) {
+      if (data.bist) setMarket('bist', data.bist.value, data.bist.change, data.bist.pct);
+      if (data.sp500) setMarket('sp500', data.sp500.value, data.sp500.change, data.sp500.pct);
+      if (data.nasdaq) setMarket('nasdaq', data.nasdaq.value, data.nasdaq.change, data.nasdaq.pct);
+      if (data.usd) setMarket('usd', data.usd.value, data.usd.change, data.usd.pct);
+      if (data.eur) setMarket('eur', data.eur.value, data.eur.change, data.eur.pct);
+      if (data.gold) setMarket('gold', data.gold.value, data.gold.change, data.gold.pct);
+    }
+  } catch (e) {
+    // API bağlanamadı
+  }
+}
+
+loadDemoMarkets();
+fetchMarkets();
+setInterval(fetchMarkets, MARKET_POLL_INTERVAL);
+
+// ═══════════════════════════════════════════
+// WEBSOCKET (Gerçek zamanlı haberler)
+// ═══════════════════════════════════════════
+let ws = null;
+let wsRetryCount = 0;
+const MAX_WS_RETRY = 10;
+
+function updateWsStatus(state) {
+  const dot = document.getElementById('ws-dot');
+  const text = document.getElementById('ws-text');
+  dot.className = `dot ${state}`;
+  const labels = {
+    connected: 'WS BAĞLI',
+    disconnected: 'WS BAĞLANTI KESİK',
+    polling: 'POLLING MODU'
+  };
+  text.textContent = labels[state] || state;
+}
+
+function connectWebSocket() {
+  try {
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      wsRetryCount = 0;
+      updateWsStatus('connected');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'news' && data.items) {
+          // Yeni haberleri ekle
+          data.items.forEach(item => {
+            allNews.unshift(item);
+            addMapPin(item);
+          });
+          renderNews(allNews);
+          // Ticker güncelle
+          tickerHeadlines = allNews.slice(0, 20).map(n => n.headline || n.title).filter(Boolean);
+          updateTicker();
+        }
+
+        if (data.type === 'markets' && data.data) {
+          const d = data.data;
+          if (d.bist) setMarket('bist', d.bist.value, d.bist.change, d.bist.pct);
+          if (d.sp500) setMarket('sp500', d.sp500.value, d.sp500.change, d.sp500.pct);
+          if (d.nasdaq) setMarket('nasdaq', d.nasdaq.value, d.nasdaq.change, d.nasdaq.pct);
+          if (d.usd) setMarket('usd', d.usd.value, d.usd.change, d.usd.pct);
+          if (d.eur) setMarket('eur', d.eur.value, d.eur.change, d.eur.pct);
+          if (d.gold) setMarket('gold', d.gold.value, d.gold.change, d.gold.pct);
+        }
+      } catch (e) {
+        console.warn('WS mesaj ayrıştırma hatası:', e);
+      }
+    };
+
+    ws.onclose = () => {
+      wsRetryCount++;
+      if (wsRetryCount < MAX_WS_RETRY) {
+        updateWsStatus('disconnected');
+        setTimeout(connectWebSocket, Math.min(5000 * wsRetryCount, 30000));
+      } else {
+        updateWsStatus('polling');
+      }
+    };
+
+    ws.onerror = () => {
+      updateWsStatus('disconnected');
+      ws.close();
+    };
+
+  } catch (e) {
+    updateWsStatus('polling');
+  }
+}
+
+connectWebSocket();
+</script>
+</body>
+</html>
