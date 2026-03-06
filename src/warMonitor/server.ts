@@ -424,25 +424,22 @@ async function fetchMarketSymbol(symbol: string): Promise<MarketEntry | null> {
   }
 }
 
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
 async function fetchAllMarkets(): Promise<void> {
   log('MARKET', 'Piyasa verileri güncelleniyor...');
 
   const data: MarketData = {};
   const pipeline = redis.pipeline();
 
-  const results = await Promise.allSettled(
-    MARKET_SYMBOLS.map(async (m) => {
-      const entry = await fetchMarketSymbol(m.symbol);
-      return { key: m.key, entry };
-    })
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value.entry) {
-      const { key, entry } = result.value;
-      data[key] = entry;
-      pipeline.hset(REDIS_KEY_MARKETS, key, JSON.stringify(entry));
+  // Sequential with delay to avoid Yahoo Finance 429 rate limit
+  for (const m of MARKET_SYMBOLS) {
+    const entry = await fetchMarketSymbol(m.symbol);
+    if (entry) {
+      data[m.key] = entry;
+      pipeline.hset(REDIS_KEY_MARKETS, m.key, JSON.stringify(entry));
     }
+    await sleep(1500);
   }
 
   await pipeline.exec();
