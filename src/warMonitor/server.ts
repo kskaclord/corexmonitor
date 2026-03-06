@@ -257,7 +257,7 @@ app.use((_req, res, next) => {
 });
 
 // Serve monitor.html at /monitor
-const monitorPath = path.resolve(__dirname, '..', '..', 'monitor.html');
+const monitorPath = path.resolve(__dirname, '..', '..', '..', 'monitor.html');
 app.get('/monitor', (_req: Request, res: Response) => {
   res.sendFile(monitorPath);
 });
