@@ -583,8 +583,8 @@ body::after {
 // ═══════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════
-window.MONITOR_API_URL = window.MONITOR_API_URL || 'http://localhost:3000';
-const WS_URL = 'ws://localhost:3001';
+window.MONITOR_API_URL = window.MONITOR_API_URL || '';
+const WS_URL = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
 const API = window.MONITOR_API_URL;
 
 const CAMERAS = [

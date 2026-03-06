@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { createHash } from 'crypto';
 import path from 'path';
+import { createServer } from 'http';
 import axios from 'axios';
 import Parser from 'rss-parser';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -453,10 +454,11 @@ async function fetchAllMarkets(): Promise<void> {
 // WEBSOCKET
 // ═══════════════════════════════════════════════════════════════
 
-const wss = new WebSocketServer({ port: WS_PORT });
+// WS will be attached to HTTP server below
+let wss: WebSocketServer;
 const wsClients = new Set<WebSocket>();
 
-wss.on('connection', async (socket) => {
+async function wsOnConnection(socket: WebSocket) {
   wsClients.add(socket);
   log('WS', `+1 bağlantı (toplam: ${wsClients.size})`);
 
@@ -476,7 +478,7 @@ wss.on('connection', async (socket) => {
   });
 
   socket.on('error', () => wsClients.delete(socket));
-});
+}
 
 function broadcastWs(data: object): void {
   if (wsClients.size === 0) return;
@@ -488,7 +490,7 @@ function broadcastWs(data: object): void {
   }
 }
 
-log('WS', `WebSocket sunucusu :${WS_PORT} portunda dinliyor`);
+
 
 // ═══════════════════════════════════════════════════════════════
 // REST API
@@ -549,7 +551,12 @@ app.get('/health', async (_req: Request, res: Response) => {
 // STARTUP
 // ═══════════════════════════════════════════════════════════════
 
-app.listen(HTTP_PORT, () => {
+const httpServer = createServer(app);
+wss = new WebSocketServer({ server: httpServer });
+
+wss.on('connection', wsOnConnection);
+
+httpServer.listen(HTTP_PORT, () => {
   log('HTTP', `API sunucusu http://localhost:${HTTP_PORT}`);
   log('HTTP', '  GET /api/news?limit=50&category=all|critical|high|general');
   log('HTTP', '  GET /api/markets');
