@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { createHash } from 'crypto';
+import path from 'path';
 import axios from 'axios';
 import Parser from 'rss-parser';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -253,6 +254,12 @@ app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   next();
+});
+
+// Serve monitor.html at /monitor
+const monitorPath = path.resolve(__dirname, '..', '..', 'monitor.html');
+app.get('/monitor', (_req: Request, res: Response) => {
+  res.sendFile(monitorPath);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -550,6 +557,7 @@ app.listen(HTTP_PORT, () => {
   log('HTTP', '  GET /api/news?limit=50&category=all|critical|high|general');
   log('HTTP', '  GET /api/markets');
   log('HTTP', '  GET /health');
+  log('HTTP', '  GET /monitor');
 });
 
 (async () => {

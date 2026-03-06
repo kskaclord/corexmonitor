@@ -653,28 +653,7 @@ setInterval(fetchTicker, TICKER_POLL_INTERVAL);
 // ═══════════════════════════════════════════
 const map = new maplibregl.Map({
   container: 'map',
-  style: {
-    version: 8,
-    sources: {
-      'osm-tiles': {
-        type: 'raster',
-        tiles: [
-          'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-        ],
-        tileSize: 256,
-        attribution: '© CartoDB © OpenStreetMap'
-      }
-    },
-    layers: [{
-      id: 'osm-tiles',
-      type: 'raster',
-      source: 'osm-tiles',
-      minzoom: 0,
-      maxzoom: 18
-    }]
-  },
+  style: 'https://api.maptiler.com/maps/darkmatter/style.json?key=i7ijHWsvKS6ztXLwXvQA',
   center: [36, 33],
   zoom: 4.2,
   attributionControl: false,
